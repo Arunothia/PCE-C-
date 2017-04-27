@@ -329,7 +329,7 @@ bool GenPCE::solve(Solver * s, Solver * s_opt,
   
 
   if (result) {
-    assignment_heap.push(next);
+    	.push(next);
   } else {
     assert (s->conflict.size() > 0);
     if (mus) {
