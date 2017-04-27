@@ -20,7 +20,6 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 
 #include <math.h>
 
-#include "mtl/Sort.h"
 #include "core/Solver.h"
 
 using namespace Minisat;
@@ -96,7 +95,9 @@ Solver::Solver() :
   , conflict_budget    (-1)
   , propagation_budget (-1)
   , asynch_interrupt   (false)
-{}
+{
+    assumption_vars = -1;
+}
 
 
 Solver::~Solver()
@@ -750,6 +751,7 @@ static double luby(double y, int x){
 // NOTE: assumptions passed in member-variable 'assumptions'.
 lbool Solver::solve_()
 {
+    cancelUntil(0);
     model.clear();
     conflict.clear();
     if (!ok) return l_False;
@@ -791,6 +793,92 @@ lbool Solver::solve_()
     cancelUntil(0);
     return status;
 }
+
+
+
+
+bool Solver::up (const vec<Lit>& assumps) {
+  /* From solve() */
+  budgetOff();
+  assumps.copyTo(assumptions);
+  // return solve_() == l_True;
+
+  cancelUntil(0);
+  //assert (decisionLevel() == 0);
+
+  /* Form solve_()*/
+  model.clear();
+  conflict.clear();
+
+  /* Need to remove the learnt clauses */
+  for (int i = 0; i < learnts.size(); i++){
+    removeClause(learnts[i]);
+  }
+  //learnts.shrink(0);
+  learnts.clear();
+  checkGarbage();
+
+  if (!ok){
+    //printf("conflict in the state of the solver\n");
+    return false;
+    }
+
+  //status = search(rest_base * restart_first);
+
+  /* From search */
+  //int before = assumps.size();
+
+  assert(ok);
+  //int         backtrack_level;
+  //int         conflictC = 0;
+  vec<Lit>    learnt_clause;
+  starts++;
+  
+  for (;;){
+    CRef confl = propagate();
+    if (confl != CRef_Undef){
+      //cancelUntil(0);
+        //printf("conflict in propagations\n");
+	  return false;
+
+    }else{
+      // NO CONFLICT
+
+      Lit next = lit_Undef;
+      while (decisionLevel() < assumptions.size()){
+	// Perform user provided assumption:
+	Lit p = assumptions[decisionLevel()];
+	if (value(p) == l_True){
+	  // Dummy decision level:
+	  newDecisionLevel();
+	}else if (value(p) == l_False){
+	  //cancelUntil(0);
+        //printf("conflict in assumptions\n");
+	  return false;
+	}else{
+	  next = p;
+	  break;
+	}
+      }
+
+      if (next == lit_Undef){
+	   // Actual branch needed
+	  //cancelUntil(0);
+	  return true;
+
+      }
+
+      // Increase decision level and enqueue 'next'
+      newDecisionLevel();
+      uncheckedEnqueue(next);
+    }
+  }
+
+  assert(0);
+}
+
+
+
 
 //=================================================================================================
 // Writing CNF to DIMACS:

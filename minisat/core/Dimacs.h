@@ -63,8 +63,25 @@ static void parse_DIMACS_main(B& in, Solver& S) {
             }else{
                 printf("PARSE ERROR! Unexpected char: %c\n", *in), exit(3);
             }
-        } else if (*in == 'c' || *in == 'p')
+        } else if (*in == 'p')
             skipLine(in);
+        else if (*in == 'c') {
+            eagerMatch(in, "c ");
+            // Inputs
+            if (*in == 'i') {
+                eagerMatch(in, "i");
+                readClause(in, S, lits);
+                S.insertInput(lits);
+            // Outputs
+            //} else if (*in == 'o') {
+            //    eagerMatch(in, "o");
+            //    readClause(in, S, lits);
+            //    S.insertOutput(lits);
+            // Comments
+            } else {
+                skipLine(in);
+            }
+        }
         else{
             cnt++;
             readClause(in, S, lits);
@@ -81,7 +98,8 @@ static void parse_DIMACS_main(B& in, Solver& S) {
 template<class Solver>
 static void parse_DIMACS(gzFile input_stream, Solver& S) {
     StreamBuffer in(input_stream);
-    parse_DIMACS_main(in, S); }
+    parse_DIMACS_main(in, S); 
+}
 
 //=================================================================================================
 }

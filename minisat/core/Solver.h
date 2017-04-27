@@ -26,7 +26,7 @@ OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWA
 #include "mtl/Alg.h"
 #include "utils/Options.h"
 #include "core/SolverTypes.h"
-
+#include "mtl/Sort.h"
 
 namespace Minisat {
 
@@ -41,6 +41,217 @@ public:
     Solver();
     virtual ~Solver();
 
+    // Optimal-finder:
+    // 
+    // Backtracks to root level before adding a clause
+    bool addClause__(vec<Lit>& ps) { cancelUntil(0); return addClause_(ps); }
+
+    bool is_locked(int i) { 
+        assert (i < nClauses());
+        Clause &c = ca[clauses[i]];
+        return !(c.mark() == 0);
+    }
+
+    void lock_reason(Var v){
+        CRef cr = reason(v);
+        if (cr != CRef_Undef){
+            Clause &c = ca[cr];
+            if (c.mark() == 1) {
+                c.mark(2);
+            } else if (c.mark() == 0) {
+                c.mark(1);
+                list_reason.push(cr);
+            }
+        }
+    }
+
+    void clear_locked() { list_reason.clear(); }
+    void undo_locked() { 
+        for (int i = 0; i < list_reason.size(); i++) {
+            Clause &c = ca[list_reason[i]];
+            if (c.mark() == 1) c.mark(0);
+        }
+    }
+
+    // Prints Inputs/Outputs in comments
+    void printIO(vec<vec<Lit> > & in, bool input) {
+        for (int i = 0; i < in.size(); i++){
+            printf("c ");
+            if (input) printf("i ");
+            else printf("o ");
+            for (int j = 0; j < in[i].size(); j++){
+                printf("%d ",var(in[i][j])+1);    
+            }
+            printf("0\n");
+        }
+    }
+    
+    // Prints all clauses in the solver
+    void printFormula() {
+        printIO(inputs, true);
+        printIO(outputs, false);
+        
+        printf("p cnf %d %d\n",nVars(),nClauses()+nUnits());
+        printUnits();
+        for (int i = 0; i < clauses.size(); i++){
+            Clause &c = ca[clauses[i]];
+            for (int j = 0; j < c.size(); j++){
+                if (sign(c[j])) printf("-");
+                printf("%d ",var(c[j])+1);
+            }
+            printf("0\n");
+        }
+    }
+
+    void printUnits() {
+        cancelUntil(0);
+        for (int i = 0; i  < nVars(); i++) {
+            if (assigns[i] == l_True) {
+                printf("%d 0\n",i+1);
+            }
+            if (assigns[i] == l_False) {
+                printf("%d 0\n",-(i+1));
+            }
+        }                
+    }
+
+    int nRealVars() {
+
+        vec<bool> real_vars;
+        real_vars.growTo(nVars());
+        for (int i = 0; i < nVars(); i++) {
+            real_vars.push(false);
+        }
+        
+        for (int i = 0; i < nClauses(); i++) {
+            Clause &c = ca[clauses[i]];
+            for (int j = 0; j < c.size(); j++) {
+                real_vars[var(c[j])] = true;
+            }
+        }
+
+        int n_vars = 0;
+        for (int i = 0; i < nVars(); i++){
+            if (i >= assumption_vars && assumption_vars != -1)
+                continue;
+
+            if (real_vars[i])
+                n_vars++;
+        }
+            
+        return n_vars;
+    }
+
+    int nUnits() {
+        cancelUntil(0);
+        int unit_clauses = 0;
+        for (int i = 0; i  < nVars(); i++) {
+            if (assigns[i] != l_Undef) {
+                unit_clauses++;
+            }
+        }
+        return unit_clauses;
+    }
+
+    void printClause(int i) {
+        assert(i < nClauses());
+        Clause &c = ca[clauses[i]];
+        for (int j = 0; j < c.size(); j++)
+        {
+            if (var(c[j]) >= assumption_vars && assumption_vars != -1)
+                continue;
+            if (sign(c[j])) printf("-");
+            printf("%d ",var(c[j])+1);
+        }
+        printf("0\n");
+    }
+
+    // Insert input
+    void insertInput(vec<Lit> &input) {
+        inputs.push();
+        new (&inputs[inputs.size()-1]) vec<Lit>();
+        input.copyTo(inputs[inputs.size()-1]);
+    }
+
+    void insertOutput(vec<Lit> &output) {
+        outputs.push();
+        new (&outputs[outputs.size()-1]) vec<Lit>();
+        output.copyTo(outputs[outputs.size()-1]);
+    }
+
+    void loadIO(vec<Lit>& in){
+        for (int i = 0; i < inputs.size(); i++){
+            for (int j = 0; j < inputs[i].size(); j++)
+                in.push(inputs[i][j]);
+        }
+
+        for (int i = 0; i < outputs.size(); i++){
+            for (int j = 0; j < outputs[i].size(); j++)
+                in.push(outputs[i][j]);
+        }
+        if (in.size() == 0) {
+            for (int i = 0; i < nVars(); i++){
+                in.push(mkLit(i));
+            }
+        }
+    }
+
+    void copyIO(Solver &s){
+        for (int i = 0; i < inputs.size(); i++)
+            s.insertInput(inputs[i]);
+
+        for (int i = 0; i < outputs.size(); i++)
+            s.insertInput(outputs[i]);
+    }
+
+    int copySolver(Solver &s){
+        cancelUntil(0);
+        s.cancelUntil(0);
+        int vars = nVars();
+        while (s.nVars() < nVars()) {
+            s.newVar();
+            if (assigns[s.nVars()-1] == l_True)
+            {
+                vec<Lit> clause(1);
+                clause[0] = mkLit(s.nVars()-1,false);
+                s.addClause(clause);
+            }
+
+            if (assigns[s.nVars()-1] == l_False)
+            {
+                vec<Lit> clause(1);
+                clause[0] = mkLit(s.nVars()-1,true);
+                s.addClause(clause);
+            }
+        }
+            
+
+        for (int i = 0; i < nClauses(); i++) {
+            Var v = s.newVar();
+            Clause &c = ca[clauses[i]];
+            vec<Lit> clause;
+            for (int j = 0; j < c.size(); j++) {
+                clause.push(c[j]);
+            }
+            clause.push(mkLit(v));
+            s.addClause(clause);
+        }
+        return vars;
+    }
+
+    void getClause(int i , vec<Lit>& clause) {
+        assert (i < nClauses());
+        Clause &c = ca[clauses[i]];
+        for (int i = 0; i < c.size(); i++) {
+            clause.push(c[i]);
+        }        
+    }
+
+    vec<Lit>& getTrail() { return trail; }
+    vec<vec<Lit> >& getInputs() { return inputs; }
+    vec<vec<Lit> >& getOutputs() { return outputs; }
+    void setAssumptions(int v) { assumption_vars = v; }
+
     // Problem specification:
     //
     Var     newVar    (bool polarity = true, bool dvar = true); // Add a new variable with parameters specifying variable mode.
@@ -52,7 +263,6 @@ public:
     bool    addClause (Lit p, Lit q, Lit r);                    // Add a ternary clause to the solver. 
     bool    addClause_(      vec<Lit>& ps);                     // Add a clause to the solver without making superflous internal copy. Will
                                                                 // change the passed vector 'ps'.
-
     // Solving:
     //
     bool    simplify     ();                        // Removes already satisfied clauses.
@@ -63,6 +273,7 @@ public:
     bool    solve        (Lit p, Lit q);            // Search for a model that respects two assumptions.
     bool    solve        (Lit p, Lit q, Lit r);     // Search for a model that respects three assumptions.
     bool    okay         () const;                  // FALSE means solver is in a conflicting state
+    bool    up           (const vec<Lit>& assumps); // Unit propagate from a given set of assumptions
 
     void    toDimacs     (FILE* f, const vec<Lit>& assumps);            // Write CNF to file in DIMACS-format.
     void    toDimacs     (const char *file, const vec<Lit>& assumps);
@@ -140,6 +351,13 @@ public:
 
 protected:
 
+    // Optimal-finder:
+    //
+    vec<vec<Lit> > inputs;
+    vec<vec<Lit> > outputs;
+    int assumption_vars;
+    vec<CRef> list_reason;
+
     // Helper structures:
     //
     struct VarData { CRef reason; int level; };
@@ -171,6 +389,7 @@ protected:
     bool                ok;               // If FALSE, the constraints are already unsatisfiable. No part of the solver state may be used!
     vec<CRef>           clauses;          // List of problem clauses.
     vec<CRef>           learnts;          // List of learnt clauses.
+    vec<Lit>            trail;            // Assignment stack; stores all assigments made in the order they were made.
     double              cla_inc;          // Amount to bump next clause with.
     vec<double>         activity;         // A heuristic measurement of the activity of a variable.
     double              var_inc;          // Amount to bump next variable with.
@@ -179,7 +398,6 @@ protected:
     vec<lbool>          assigns;          // The current assignments.
     vec<char>           polarity;         // The preferred polarity of each variable.
     vec<char>           decision;         // Declares if a variable is eligible for selection in the decision heuristic.
-    vec<Lit>            trail;            // Assignment stack; stores all assigments made in the order they were made.
     vec<int>            trail_lim;        // Separator indices for different decision levels in 'trail'.
     vec<VarData>        vardata;          // Stores reason and level for each variable.
     int                 qhead;            // Head of queue (as index into the trail -- no more explicit propagation queue in MiniSat).
@@ -189,6 +407,7 @@ protected:
     Heap<VarOrderLt>    order_heap;       // A priority queue of variables ordered with respect to the variable activity.
     double              progress_estimate;// Set by 'search()'.
     bool                remove_satisfied; // Indicates whether possibly inefficient linear scan for satisfied clauses should be performed in 'simplify'.
+    void     cancelUntil      (int level);                                             // Backtrack until a certain level.
 
     ClauseAllocator     ca;
 
@@ -218,7 +437,6 @@ protected:
     void     uncheckedEnqueue (Lit p, CRef from = CRef_Undef);                         // Enqueue a literal. Assumes value of literal is undefined.
     bool     enqueue          (Lit p, CRef from = CRef_Undef);                         // Test if fact 'p' contradicts current state, enqueue otherwise.
     CRef     propagate        ();                                                      // Perform unit propagation. Returns possibly conflicting clause.
-    void     cancelUntil      (int level);                                             // Backtrack until a certain level.
     void     analyze          (CRef confl, vec<Lit>& out_learnt, int& out_btlevel);    // (bt = backtrack)
     void     analyzeFinal     (Lit p, vec<Lit>& out_conflict);                         // COULD THIS BE IMPLEMENTED BY THE ORDINARIY "analyze" BY SOME REASONABLE GENERALIZATION?
     bool     litRedundant     (Lit p, uint32_t abstract_levels);                       // (helper method for 'analyze()')

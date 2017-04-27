@@ -1,0 +1,10 @@
+c :: reference filename :: (null)
+c :: reference encoding :: 0
+c i 1 2 3 4 5 6 7 8 9 10 11 12 13 14 0
+c :: inputs :: 1 2 3 4 5 6 7 8 9 10 11 12 13 14 
+c :: clause minimization :: 0
+c :: assignments analyzed :: 4782968
+c :: reference encoding :: variables :: 0 :: clauses :: 0
+c :: optimal encoding :: variables :: 0 :: clauses :: 0
+p cnf 14 0
+90 is the execution time
